@@ -44,7 +44,7 @@ jobs:
                   labels: ${{ steps.meta.outputs.labels }}
                   file: ./Dockerfile
 
-            # --- FINAL DEPLOYMENT STEP ---
+            # --- FINAL DEPLOYMENT STEP: Deploys directly to the user's home directory ---
             - name: Deploy to EC2 Instance
               # Using the stable major version tag (v1)
               uses: appleboy/ssh-action@v1 
@@ -53,31 +53,24 @@ jobs:
                   username: ${{ secrets.EC2_USER }}
                   key: ${{ secrets.EC2_SSH_KEY }}
                   
-                  # The valid file transfer input for @v1 is 'sync: true'.
+                  # The valid file transfer input for @v1 is 'sync: true'. Files go to /home/<user>/
                   sync: true
                   
                   script: |
-                      # 0. Setup: Ensure tools (including rsync) are present
-                      # rsync is the safest way to move files without recursion errors
-                      sudo apt update && sudo apt install -y docker-compose rsync || true 
+                      # 0. Setup: Ensure tools are present
+                      sudo apt update && sudo apt install -y docker-compose || true 
                       
-                      # Create the target directory
-                      mkdir -p /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
+                      # Change to the user's home directory (where files were synced)
+                      cd /home/${{ secrets.EC2_USER }}/
                       
-                      # FIX: Use rsync to safely move synced files from user's home (where sync puts them) 
-                      # to the target sub-directory without causing a recursive error.
-                      rsync -av --remove-source-files /home/${{ secrets.EC2_USER }}/ /home/${{ secrets.EC2_USER }}/Wordpress-docker-new/ || true
-                      
-                      # Change to the target directory
-                      cd /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
-                      
-                      # Fix file ownership (required after file transfer/sync)
+                      # Fix file ownership (required after file transfer/sync for docker-compose access)
                       sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} .
                       
                       # 1. Log in to GHCR on the EC2 instance
                       docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
 
                       # 2. Stop and remove old containers, then deploy new ones
+                      # docker-compose.yml is now at the top level of the current directory (~)
                       docker-compose down || true
                       docker-compose pull
                       docker-compose up -d --build
