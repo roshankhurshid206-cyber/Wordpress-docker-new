@@ -46,24 +46,28 @@ jobs:
                   labels: ${{ steps.meta.outputs.labels }}
                   file: ./Dockerfile
 
-            # --- DEPLOYMENT STEP (RETAINED) ---
-            - name: Deploy to EC2 Instance
-              uses: appleboy/ssh-action@v1.0.3
-              with:
-                  host: ${{ secrets.EC2_HOST }}
-                  username: ${{ secrets.EC2_USER }}
-                  key: ${{ secrets.EC2_SSH_KEY }}
-                  script: |
-                      # 1. Navigate to the deployment directory (must exist on EC2)
-                      cd /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
+           # --- DEPLOYMENT STEP ---
+        - name: Deploy to EC2 Instance
+          uses: appleboy/ssh-action@v1.0.3
+          with:
+              host: ${{ secrets.EC2_HOST }}
+              username: ${{ secrets.EC2_USER }}
+              key: ${{ secrets.EC2_SSH_KEY }}
+              script: |
+                  # 0. Set up Git safety config and ensure deployment directory exists
+                  git config --global --add safe.directory /
+                  mkdir -p /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
+                  cd /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
 
-                      # 2. Pull the latest code (docker-compose.yml)
-                      git pull origin main
+                  # 1. Pull the latest code (docker-compose.yml)
+                  git pull origin main
 
-                      # 3. Log in to GHCR on the EC2 instance
-                      docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+                  # 2. Log in to GHCR on the EC2 instance
+                  # WARNING: Your credentials are used here.
+                  docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
 
-                      # 4. Stop and remove old containers, then deploy new ones
-                      docker-compose down || true
-                      docker-compose pull
-                      docker-compose up -d --build
+                  # 3. Stop and remove old containers, then deploy new ones using the unified 'docker compose' command
+                  # Note: Using 'docker compose' (no hyphen) as the old 'docker-compose' is not found.
+                  docker compose down || true
+                  docker compose pull
+                  docker compose up -d --build
