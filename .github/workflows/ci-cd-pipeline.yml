@@ -44,26 +44,29 @@ jobs:
                   labels: ${{ steps.meta.outputs.labels }}
                   file: ./Dockerfile
 
-            # --- DEPLOYMENT STEP ---
-            - name: Deploy to EC2 Instance
-              uses: appleboy/ssh-action@v1.0.3
-              with:
-                  host: ${{ secrets.EC2_HOST }}
-                  username: ${{ secrets.EC2_USER }}
-                  key: ${{ secrets.EC2_SSH_KEY }}
-                  script: |
-                      # 0. Set up Git safety config and ensure deployment directory exists
-                      git config --global --add safe.directory /
-                      mkdir -p /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
-                      cd /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
+           # --- DEPLOYMENT STEP ---
+        - name: Deploy to EC2 Instance
+          uses: appleboy/ssh-action@v1.0.3
+          with:
+              host: ${{ secrets.EC2_HOST }}
+              username: ${{ secrets.EC2_USER }}
+              key: ${{ secrets.EC2_SSH_KEY }}
+              script: |
+                  # 0. Set up essential tools, ownership, and directory
+                  sudo apt update && sudo apt install -y docker-compose || true
+                  git config --global --add safe.directory /
+                  mkdir -p /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
+                  sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
+                  cd /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
 
-                      # 1. Pull the latest code (docker-compose.yml)
-                      git pull origin main
+                  # 1. Pull the latest code (fixes permission error with chown)
+                  git pull origin main
 
-                      # 2. Log in to GHCR on the EC2 instance
-                      docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+                  # 2. Log in to GHCR on the EC2 instance
+                  docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
 
-                      # 3. Stop and remove old containers, then deploy new ones using the unified 'docker compose' command
-                      docker compose down || true
-                      docker compose pull
+                  # 3. Stop and remove old containers, then deploy new ones using the classic 'docker-compose' command
+                  docker-compose down || true
+                  docker-compose pull
+                  docker-compose up -d --buildcompose pull
                       docker compose up -d --build
