@@ -16,7 +16,6 @@ jobs:
             - name: Checkout Repository
               uses: actions/checkout@v4
 
-            # NEW: Setup Docker BuildX (Essential for modern Docker builds)
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
             
@@ -36,9 +35,8 @@ jobs:
                       type=sha,prefix=,suffix=,enable=true
                       type=raw,value=latest,enable={{is_default_branch}}
             
-            # RESTRUCTURED: Build and Push using the buildx action and meta tags
             - name: Build and Push Docker Image
-              uses: docker/build-push-action@v5 # Renamed action
+              uses: docker/build-push-action@v5
               with:
                   context: .
                   push: true
@@ -46,28 +44,26 @@ jobs:
                   labels: ${{ steps.meta.outputs.labels }}
                   file: ./Dockerfile
 
-           # --- DEPLOYMENT STEP ---
-        - name: Deploy to EC2 Instance
-          uses: appleboy/ssh-action@v1.0.3
-          with:
-              host: ${{ secrets.EC2_HOST }}
-              username: ${{ secrets.EC2_USER }}
-              key: ${{ secrets.EC2_SSH_KEY }}
-              script: |
-                  # 0. Set up Git safety config and ensure deployment directory exists
-                  git config --global --add safe.directory /
-                  mkdir -p /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
-                  cd /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
+            # --- DEPLOYMENT STEP ---
+            - name: Deploy to EC2 Instance
+              uses: appleboy/ssh-action@v1.0.3
+              with:
+                  host: ${{ secrets.EC2_HOST }}
+                  username: ${{ secrets.EC2_USER }}
+                  key: ${{ secrets.EC2_SSH_KEY }}
+                  script: |
+                      # 0. Set up Git safety config and ensure deployment directory exists
+                      git config --global --add safe.directory /
+                      mkdir -p /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
+                      cd /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
 
-                  # 1. Pull the latest code (docker-compose.yml)
-                  git pull origin main
+                      # 1. Pull the latest code (docker-compose.yml)
+                      git pull origin main
 
-                  # 2. Log in to GHCR on the EC2 instance
-                  # WARNING: Your credentials are used here.
-                  docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+                      # 2. Log in to GHCR on the EC2 instance
+                      docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
 
-                  # 3. Stop and remove old containers, then deploy new ones using the unified 'docker compose' command
-                  # Note: Using 'docker compose' (no hyphen) as the old 'docker-compose' is not found.
-                  docker compose down || true
-                  docker compose pull
-                  docker compose up -d --build
+                      # 3. Stop and remove old containers, then deploy new ones using the unified 'docker compose' command
+                      docker compose down || true
+                      docker compose pull
+                      docker compose up -d --build
