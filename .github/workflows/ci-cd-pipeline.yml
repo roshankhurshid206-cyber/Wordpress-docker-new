@@ -1,77 +1,37 @@
-name: Docker Image Build and Deploy
-
-on:
-    push:
-        branches:
-            - main
-
-jobs:
-    build-and-deploy:
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            packages: write
-
-        steps:
-            - name: Checkout Repository
-              uses: actions/checkout@v4
-
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
-            
-            - name: Log in to GitHub Container Registry
-              uses: docker/login-action@v3
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Generate Image Tags and Metadata
-              id: meta
-              uses: docker/metadata-action@v5
-              with:
-                  images: ghcr.io/${{ github.repository }}
-                  tags: |
-                      type=sha,prefix=,suffix=,enable=true
-                      type=raw,value=latest,enable={{is_default_branch}}
-            
-            - name: Build and Push Docker Image
-              uses: docker/build-push-action@v5
-              with:
-                  context: .
-                  push: true
-                  tags: ${{ steps.meta.outputs.tags }}
-                  labels: ${{ steps.meta.outputs.labels }}
-                  file: ./Dockerfile
-
-            # --- FINAL DEPLOYMENT STEP: Using reliable v1 tag and source/target sync ---
+# --- FINAL DEPLOYMENT STEP: Using the correct sync parameter for @v1 ---
             - name: Deploy to EC2 Instance
-              # Using the stable major version tag (v1) to resolve lookup errors and enable robust sync
+              # Using the stable major version tag (v1)
               uses: appleboy/ssh-action@v1 
               with:
                   host: ${{ secrets.EC2_HOST }}
                   username: ${{ secrets.EC2_USER }}
                   key: ${{ secrets.EC2_SSH_KEY }}
                   
-                  # These parameters reliably transfer the files to the target directory
-                  source: "."
-                  target: "/home/${{ secrets.EC2_USER }}/Wordpress-docker-new"
+                  # The only valid file transfer input for @v1 is 'sync: true'. 
+                  # 'source' and 'target' must be removed entirely.
+                  sync: true
                   
                   script: |
-                      # 0. Setup: Ensure tools are present, and the deployment directory is ready
+                      # 0. Setup: Ensure tools are present
                       sudo apt update && sudo apt install -y docker-compose || true 
                       
-                      # Change to the target directory where 'source/target' placed the files
+                      # Create the target directory
+                      mkdir -p /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
+                      
+                      # The files are synced to /home/<user>/, so we move them into the target sub-directory
+                      # This mv command is now safe as we don't try to move the sub-directory itself.
+                      mv -f /home/${{ secrets.EC2_USER }}/* /home/${{ secrets.EC2_USER }}/Wordpress-docker-new/
+                      
+                      # Change to the target directory
                       cd /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
                       
                       # Fix file ownership (required after file transfer/sync for docker-compose access)
-                      sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} /home/${{ secrets.EC2_USER }}/Wordpress-docker-new
+                      sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} .
                       
                       # 1. Log in to GHCR on the EC2 instance
                       docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
 
                       # 2. Stop and remove old containers, then deploy new ones
-                      # docker-compose.yml is now guaranteed to be in the current directory
                       docker-compose down || true
                       docker-compose pull
                       docker-compose up -d --build
